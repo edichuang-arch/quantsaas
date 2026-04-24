@@ -1,0 +1,18 @@
+# LocalAgent 配置模板
+# 复制此文件为 config.agent.yaml 后填写真实值，并确保 config.agent.yaml 在 .gitignore 中。
+# 铁律 #5：API Key 只能存在于本地；永不上传云端或提交到 git。
+
+saas_url: http://localhost:8080
+email: your-email@example.com
+password: "CHANGE_ME"   # 建议改用 AGENT_PASSWORD 环境变量注入
+
+exchange:
+  name: binance
+  api_key: "CHANGE_ME"      # 建议改用 BINANCE_API_KEY 环境变量注入
+  secret_key: "CHANGE_ME"   # 建议改用 BINANCE_SECRET_KEY 环境变量注入
+  sandbox: false
+  base_url: ""              # 留空使用 Binance 官方 endpoint
+
+reconnect:
+  initial_backoff_ms: 1000
+  max_backoff_ms: 300000    # 5 分钟

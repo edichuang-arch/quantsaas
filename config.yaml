@@ -1,0 +1,28 @@
+# QuantSaaS SaaS 侧配置模板
+# 密钥字段保持留空，通过环境变量注入：
+#   DB_PASSWORD / JWT_SECRET / REDIS_PASSWORD / APP_ROLE
+# 铁律 #5：本配置文件永远不含 Binance API Key / Secret。
+
+app_role: dev  # saas / lab / dev，会被 APP_ROLE 环境变量覆盖
+
+server:
+  host: 0.0.0.0
+  port: 8080
+
+database:
+  host: localhost
+  port: 5432
+  user: quantsaas
+  password: ""        # 从 DB_PASSWORD 环境变量注入
+  dbname: quantsaas
+  sslmode: disable
+
+redis:
+  addr: localhost:6379
+  password: ""        # 从 REDIS_PASSWORD 环境变量注入
+  db: 0
+
+jwt:
+  secret: ""          # 从 JWT_SECRET 环境变量注入（至少 32 字节）
+  expire_hours: 24
+  agent_token_ttl_hours: 168   # Agent JWT 默认 7 天

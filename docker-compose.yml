@@ -1,0 +1,66 @@
+# QuantSaaS 本地开发 / dev 模式 docker-compose。
+#
+# 用法：
+#   1. 复制 .env.example 为 .env 填写 JWT_SECRET / DB_PASSWORD
+#   2. docker compose up -d
+#   3. docker compose logs -f saas
+#
+# Agent 二进制不在容器里运行（铁律 #5：API Key 只存本地）。
+# 用户在本机直接执行 ./bin/agent -config config.agent.yaml。
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: quantsaas-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: quantsaas
+      POSTGRES_USER: quantsaas
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-quantsaas-dev-pw}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "quantsaas", "-d", "quantsaas"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: quantsaas-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  saas:
+    build:
+      context: .
+      dockerfile: saas.Dockerfile
+    container_name: quantsaas-saas
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ROLE: ${APP_ROLE:-dev}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: quantsaas
+      DB_PASSWORD: ${DB_PASSWORD:-quantsaas-dev-pw}
+      DB_NAME: quantsaas
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-at-least-32-bytes}
+    ports:
+      - "8080:8080"
+
+volumes:
+  pg_data:

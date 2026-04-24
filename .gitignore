@@ -1,0 +1,29 @@
+# --- 绝对禁止提交的密钥文件（铁律 #5）---
+config.agent.yaml
+*.env
+.env
+.env.*
+
+# --- 编译产物 ---
+bin/
+*.exe
+*.test
+*.out
+
+# --- 依赖缓存 ---
+vendor/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# --- 运行时数据 ---
+*.log
+logs/
+tmp/
+
+# --- 前端构建产物 ---
+web-frontend/dist/
+web-frontend/node_modules/
