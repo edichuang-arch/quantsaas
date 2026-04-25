@@ -137,6 +137,7 @@ func (c *Client) loginForJWT(ctx context.Context) (string, error) {
 	body, _ := json.Marshal(map[string]string{
 		"email":    c.Cfg.Email,
 		"password": c.Cfg.Password,
+		"actor":    "agent", // 必须，否则 Hub.authenticate 会因 token 不是 agent 类型而拒绝
 	})
 	restURL := strings.TrimRight(c.Cfg.SaaSURL, "/") + "/api/v1/auth/login"
 	// SaaS URL 可能是 ws://；切换到 http 版本

@@ -103,9 +103,14 @@ func RoundToUSDT(x float64) float64 {
 	return math.Round(x*100) / 100
 }
 
-// RoundToAssetQty 将资产数量四舍五入到 6 位小数（现货常见精度）。
+// RoundToAssetQty 将资产数量向下截断到 5 位小数（0.00001）。
+//
+// 选择 floor 而非 round 的原因:
+//   - SELL 时若 round up 可能超过实际持仓 → 单子被拒
+//   - Binance 主流现货对（BTC/ETH/BNB/SOL/USDT）LOT_SIZE.stepSize = 0.00001
+//   - 未来若策略要支持其他 stepSize, tick.go 应改用 instance.LotStep 动态截断
 func RoundToAssetQty(x float64) float64 {
-	return math.Round(x*1e6) / 1e6
+	return math.Floor(x*1e5) / 1e5
 }
 
 // LogReturn 对数收益率 ln(p1/p0)。p0 <= 0 返回 NaN。

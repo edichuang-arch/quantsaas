@@ -75,7 +75,10 @@ func TestRoundToUSDT(t *testing.T) {
 }
 
 func TestRoundToAssetQty(t *testing.T) {
-	assert.Equal(t, 0.123457, RoundToAssetQty(0.1234567))
+	// floor 到 5 位小数（与 Binance 主流现货对 LOT_SIZE.stepSize=0.00001 对齐）
+	assert.InDelta(t, 0.12345, RoundToAssetQty(0.1234567), 1e-9)
+	assert.InDelta(t, 0.12345, RoundToAssetQty(0.123459), 1e-9, "must floor not round up")
+	assert.InDelta(t, 0.0, RoundToAssetQty(0.000009), 1e-9, "below stepSize → 0")
 }
 
 func TestLogReturn(t *testing.T) {
