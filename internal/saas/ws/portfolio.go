@@ -138,6 +138,11 @@ func (r *Reconciler) applyFilled(
 		applyTradeToPortfolio(&pf, exec, filledQty, filledQuote, fee)
 		// 4. 用 Balances 覆盖现金余额（信任 Agent 的真实数据）
 		applyBalancesToPortfolio(&pf, report.Balances, inst.Symbol)
+		// 5. 用本次成交价重算 LastPriceUSDT 与 TotalEquity（前端 Dashboard 直接读这两个字段）
+		if filledPrice > 0 {
+			pf.LastPriceUSDT = filledPrice
+		}
+		pf.TotalEquity = recomputeTotalEquity(&pf)
 		if err := tx.Save(&pf).Error; err != nil {
 			return fmt.Errorf("save portfolio: %w", err)
 		}
@@ -258,6 +263,17 @@ func applyBalancesToPortfolio(pf *store.PortfolioState, balances []wsproto.Balan
 			}
 		}
 	}
+}
+
+// recomputeTotalEquity 用 LastPriceUSDT 计算 TotalEquity。
+// 公式与 quant.PortfolioSnapshot.TotalEquity() 等价：USDT + (Dead+Float+Cold)*price。
+// LastPriceUSDT = 0（尚未有成交价）→ 退化为 USDTBalance（保守估计）。
+func recomputeTotalEquity(pf *store.PortfolioState) float64 {
+	asset := pf.DeadStackAsset + pf.FloatStackAsset + pf.ColdSealedAsset
+	if pf.LastPriceUSDT <= 0 {
+		return pf.USDTBalance
+	}
+	return pf.USDTBalance + asset*pf.LastPriceUSDT
 }
 
 // --- 内部工具 ---

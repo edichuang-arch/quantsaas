@@ -91,6 +91,35 @@ func TestReconciler_AppliesFilledExecution(t *testing.T) {
 	var pf2 store.PortfolioState
 	require.NoError(t, db.Where("instance_id = ?", inst.ID).First(&pf2).Error)
 	assert.InDelta(t, 9949.95, pf2.USDTBalance, 1e-6)
+
+	// LastPriceUSDT 用本次成交价；TotalEquity = USDT + 资产 × 成交价
+	assert.InDelta(t, 50000.0, pf2.LastPriceUSDT, 1e-6)
+	expected := pf2.USDTBalance + (pf2.DeadStackAsset+pf2.FloatStackAsset+pf2.ColdSealedAsset)*pf2.LastPriceUSDT
+	assert.InDelta(t, expected, pf2.TotalEquity, 1e-6, "TotalEquity should be reconciled after fill")
+	assert.Greater(t, pf2.TotalEquity, 9000.0, "must include both cash and asset value")
+}
+
+// recomputeTotalEquity 直接验证（即使没成交，给定价也要算对）。
+func TestRecomputeTotalEquity_PriceWeighted(t *testing.T) {
+	pf := &store.PortfolioState{
+		USDTBalance:    100,
+		DeadStackAsset: 0.5,
+		FloatStackAsset: 0.3,
+		ColdSealedAsset: 0.2,
+		LastPriceUSDT:  1000,
+	}
+	got := recomputeTotalEquity(pf)
+	// 100 + (0.5+0.3+0.2)*1000 = 100 + 1000 = 1100
+	assert.InDelta(t, 1100.0, got, 1e-9)
+}
+
+func TestRecomputeTotalEquity_NoPriceFallsBackToUSDT(t *testing.T) {
+	pf := &store.PortfolioState{
+		USDTBalance:    500,
+		FloatStackAsset: 1.0,
+		LastPriceUSDT:  0, // 尚未有成交价
+	}
+	assert.Equal(t, 500.0, recomputeTotalEquity(pf), "without price, equity == cash")
 }
 
 func TestReconciler_FailedExecution_NoTradeRecord(t *testing.T) {
