@@ -11,18 +11,102 @@ import (
 
 func newRNG() *rand.Rand { return rand.New(rand.NewSource(42)) }
 
-// Sample 结果必须落在 HardBounds 范围内。
-func TestSample_WithinBounds(t *testing.T) {
+// Sample 结果必须落在 InitBounds（窄区间）内 —— 比 HardBounds 更严的约束。
+// 这是 gen-0 不再全员 fatal 的关键：随机采样只在“合理区”内。
+func TestSample_WithinInitBounds(t *testing.T) {
 	ev := NewSigmoidBTCEvolvable()
 	rng := newRNG()
-	for i := 0; i < 100; i++ {
+	b := quant.HardBounds
+	for i := 0; i < 200; i++ {
 		g := ev.Sample(rng)
 		c, ok := g.(quant.Chromosome)
 		require.True(t, ok)
-		assert.GreaterOrEqual(t, c.Beta, quant.HardBounds.Beta.Min)
-		assert.LessOrEqual(t, c.Beta, quant.HardBounds.Beta.Max)
-		assert.GreaterOrEqual(t, c.BaseDays, int(quant.HardBounds.BaseDays.Min))
-		assert.LessOrEqual(t, c.BaseDays, int(quant.HardBounds.BaseDays.Max))
+		// 每一维都必须落在 InitBounds 内
+		assert.GreaterOrEqual(t, c.Beta, b.Beta.InitMin)
+		assert.LessOrEqual(t, c.Beta, b.Beta.InitMax)
+		assert.GreaterOrEqual(t, c.Gamma, b.Gamma.InitMin)
+		assert.LessOrEqual(t, c.Gamma, b.Gamma.InitMax)
+		assert.GreaterOrEqual(t, c.SigmaFloor, b.SigmaFloor.InitMin)
+		assert.LessOrEqual(t, c.SigmaFloor, b.SigmaFloor.InitMax)
+		assert.GreaterOrEqual(t, c.BaseDays, int(b.BaseDays.InitMin))
+		assert.LessOrEqual(t, c.BaseDays, int(b.BaseDays.InitMax))
+		assert.GreaterOrEqual(t, c.Multiplier, b.Multiplier.InitMin)
+		assert.LessOrEqual(t, c.Multiplier, b.Multiplier.InitMax)
+		assert.GreaterOrEqual(t, c.BetaThreshold, b.BetaThreshold.InitMin)
+		assert.LessOrEqual(t, c.BetaThreshold, b.BetaThreshold.InitMax)
+		assert.GreaterOrEqual(t, c.PriceDiscountBoost, b.PriceDiscountBoost.InitMin)
+		assert.LessOrEqual(t, c.PriceDiscountBoost, b.PriceDiscountBoost.InitMax)
+		assert.GreaterOrEqual(t, c.DeadlineForcePct, b.DeadlineForcePct.InitMin)
+		assert.LessOrEqual(t, c.DeadlineForcePct, b.DeadlineForcePct.InitMax)
+		assert.GreaterOrEqual(t, c.MinAgeMonths, int(b.MinAgeMonths.InitMin))
+		assert.LessOrEqual(t, c.MinAgeMonths, int(b.MinAgeMonths.InitMax))
+		assert.GreaterOrEqual(t, c.SoftReleaseMaxRatio, b.SoftReleaseMaxRatio.InitMin)
+		assert.LessOrEqual(t, c.SoftReleaseMaxRatio, b.SoftReleaseMaxRatio.InitMax)
+		assert.GreaterOrEqual(t, c.BullTimeDilation, b.BullTimeDilation.InitMin)
+		assert.LessOrEqual(t, c.BullTimeDilation, b.BullTimeDilation.InitMax)
+		assert.GreaterOrEqual(t, c.BearTimeDilation, b.BearTimeDilation.InitMin)
+		assert.LessOrEqual(t, c.BearTimeDilation, b.BearTimeDilation.InitMax)
+		assert.GreaterOrEqual(t, c.BullBetaMultiplier, b.BullBetaMultiplier.InitMin)
+		assert.LessOrEqual(t, c.BullBetaMultiplier, b.BullBetaMultiplier.InitMax)
+		assert.GreaterOrEqual(t, c.BearBetaMultiplier, b.BearBetaMultiplier.InitMin)
+		assert.LessOrEqual(t, c.BearBetaMultiplier, b.BearBetaMultiplier.InitMax)
+		assert.GreaterOrEqual(t, c.MicroReservePct, b.MicroReservePct.InitMin)
+		assert.LessOrEqual(t, c.MicroReservePct, b.MicroReservePct.InitMax)
+	}
+}
+
+// TestInitBounds_SubsetOfHardBounds 防呆：所有 InitBounds 必须是 HardBounds 子集。
+// 任何人改 HardBounds 时都会被这条测试拦下来。
+func TestInitBounds_SubsetOfHardBounds(t *testing.T) {
+	b := quant.HardBounds
+	cases := []struct {
+		name  string
+		bound quant.Bound
+	}{
+		{"Beta", b.Beta},
+		{"Gamma", b.Gamma},
+		{"SigmaFloor", b.SigmaFloor},
+		{"BaseDays", b.BaseDays},
+		{"Multiplier", b.Multiplier},
+		{"BetaThreshold", b.BetaThreshold},
+		{"PriceDiscountBoost", b.PriceDiscountBoost},
+		{"DeadlineForcePct", b.DeadlineForcePct},
+		{"MinAgeMonths", b.MinAgeMonths},
+		{"SoftReleaseMaxRatio", b.SoftReleaseMaxRatio},
+		{"BullTimeDilation", b.BullTimeDilation},
+		{"BearTimeDilation", b.BearTimeDilation},
+		{"BullBetaMultiplier", b.BullBetaMultiplier},
+		{"BearBetaMultiplier", b.BearBetaMultiplier},
+		{"MicroReservePct", b.MicroReservePct},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.GreaterOrEqual(t, c.bound.InitMin, c.bound.Min,
+				"%s.InitMin (%v) must >= Min (%v)", c.name, c.bound.InitMin, c.bound.Min)
+			assert.LessOrEqual(t, c.bound.InitMax, c.bound.Max,
+				"%s.InitMax (%v) must <= Max (%v)", c.name, c.bound.InitMax, c.bound.Max)
+			assert.LessOrEqual(t, c.bound.InitMin, c.bound.InitMax,
+				"%s.InitMin (%v) must <= InitMax (%v)", c.name, c.bound.InitMin, c.bound.InitMax)
+		})
+	}
+}
+
+// Mutate 后的结果仍必须夹紧到 HardBounds（不是 InitBounds —— mutate 可以突破窄区）。
+func TestMutate_RespectsHardBounds(t *testing.T) {
+	ev := NewSigmoidBTCEvolvable()
+	rng := newRNG()
+	b := quant.HardBounds
+	original := quant.DefaultSeedChromosome
+	// 用极端 prob/scale 让所有维度都被大幅扰动
+	for i := 0; i < 200; i++ {
+		g := ev.Mutate(original, 1.0, 5.0, rng)
+		c := g.(quant.Chromosome)
+		assert.GreaterOrEqual(t, c.Beta, b.Beta.Min)
+		assert.LessOrEqual(t, c.Beta, b.Beta.Max)
+		assert.GreaterOrEqual(t, c.SigmaFloor, b.SigmaFloor.Min)
+		assert.LessOrEqual(t, c.SigmaFloor, b.SigmaFloor.Max)
+		assert.GreaterOrEqual(t, c.MicroReservePct, b.MicroReservePct.Min)
+		assert.LessOrEqual(t, c.MicroReservePct, b.MicroReservePct.Max)
 	}
 }
 

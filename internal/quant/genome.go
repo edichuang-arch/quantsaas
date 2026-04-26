@@ -39,44 +39,61 @@ type Chromosome struct {
 	MicroReservePct float64 `json:"micro_reserve_pct"`
 }
 
-// Bound 单个字段的合法数值范围（含两端）。
+// Bound 单个字段的合法数值范围（含两端）+ 初始采样的较窄子区间。
+//
+// 字段语义：
+//   - Min/Max：HardBounds 硬边界。Mutate 在此范围内夹紧；Clamp 强制约束。
+//   - InitMin/InitMax：初始随机采样的“合理区”。GA gen-0 在此区间内 uniform 采样，
+//     避免随机撒点落在策略地狱区导致全员 fatal（MaxDD ≥ 88%）。
+//     必须满足 Min ≤ InitMin ≤ InitMax ≤ Max。
+//   - Step：变异步长（N(0,1) × Step × scale）。
+//
+// 设计取舍：mutate 仍用 [Min, Max] —— 让 GA 后期能突破 InitBounds 探索极端值，
+// 只是 gen-0 不直接乱撒。
 type Bound struct {
-	Min, Max, Step float64
+	Min, Max         float64
+	InitMin, InitMax float64
+	Step             float64
 }
 
-// HardBounds 每个基因字段的硬边界与步长。步长用于 GA 变异幅度计算。
+// HardBounds 每个基因字段的硬边界 + 初始化采样窄区间 + 变异步长。
+//
+// InitBounds 是基于 sigmoid 数学与 BTC 5m K 线量级的经验值：
+//   - Beta/Gamma：避免 sigmoid 饱和（>2 时几乎全 0/1）
+//   - SigmaFloor：BTC 5m σ 量级 50–200
+//   - 时间膨胀/Beta 乘数：围绕 1× 小幅扰动
 var HardBounds = struct {
-	Beta                 Bound
-	Gamma                Bound
-	SigmaFloor           Bound
-	BaseDays             Bound
-	Multiplier           Bound
-	BetaThreshold        Bound
-	PriceDiscountBoost   Bound
-	DeadlineForcePct     Bound
-	MinAgeMonths         Bound
-	SoftReleaseMaxRatio  Bound
-	BullTimeDilation     Bound
-	BearTimeDilation     Bound
-	BullBetaMultiplier   Bound
-	BearBetaMultiplier   Bound
-	MicroReservePct      Bound
+	Beta                Bound
+	Gamma               Bound
+	SigmaFloor          Bound
+	BaseDays            Bound
+	Multiplier          Bound
+	BetaThreshold       Bound
+	PriceDiscountBoost  Bound
+	DeadlineForcePct    Bound
+	MinAgeMonths        Bound
+	SoftReleaseMaxRatio Bound
+	BullTimeDilation    Bound
+	BearTimeDilation    Bound
+	BullBetaMultiplier  Bound
+	BearBetaMultiplier  Bound
+	MicroReservePct     Bound
 }{
-	Beta:                 Bound{Min: 0.1, Max: 5.0, Step: 0.3},
-	Gamma:                Bound{Min: 0.0, Max: 3.0, Step: 0.2},
-	SigmaFloor:           Bound{Min: 0.0, Max: 500.0, Step: 20.0},
-	BaseDays:             Bound{Min: 1, Max: 30, Step: 2},
-	Multiplier:           Bound{Min: 0.2, Max: 3.0, Step: 0.2},
-	BetaThreshold:        Bound{Min: 0.0, Max: 0.3, Step: 0.02},
-	PriceDiscountBoost:   Bound{Min: 0.0, Max: 5.0, Step: 0.5},
-	DeadlineForcePct:     Bound{Min: 0.0, Max: 1.0, Step: 0.1},
-	MinAgeMonths:         Bound{Min: 1, Max: 36, Step: 2},
-	SoftReleaseMaxRatio:  Bound{Min: 0.0, Max: 0.5, Step: 0.05},
-	BullTimeDilation:     Bound{Min: 0.5, Max: 3.0, Step: 0.2},
-	BearTimeDilation:     Bound{Min: 0.3, Max: 2.0, Step: 0.2},
-	BullBetaMultiplier:   Bound{Min: 1.0, Max: 3.0, Step: 0.2},
-	BearBetaMultiplier:   Bound{Min: 1.0, Max: 3.0, Step: 0.2},
-	MicroReservePct:      Bound{Min: 0.0, Max: 0.8, Step: 0.05},
+	Beta:                Bound{Min: 0.1, Max: 5.0, InitMin: 0.5, InitMax: 2.0, Step: 0.3},
+	Gamma:               Bound{Min: 0.0, Max: 3.0, InitMin: 0.0, InitMax: 1.0, Step: 0.2},
+	SigmaFloor:          Bound{Min: 0.0, Max: 500.0, InitMin: 50.0, InitMax: 200.0, Step: 20.0},
+	BaseDays:            Bound{Min: 1, Max: 30, InitMin: 7, InitMax: 21, Step: 2},
+	Multiplier:          Bound{Min: 0.2, Max: 3.0, InitMin: 0.5, InitMax: 1.5, Step: 0.2},
+	BetaThreshold:       Bound{Min: 0.0, Max: 0.3, InitMin: 0.05, InitMax: 0.15, Step: 0.02},
+	PriceDiscountBoost:  Bound{Min: 0.0, Max: 5.0, InitMin: 0.5, InitMax: 2.0, Step: 0.5},
+	DeadlineForcePct:    Bound{Min: 0.0, Max: 1.0, InitMin: 0.3, InitMax: 0.7, Step: 0.1},
+	MinAgeMonths:        Bound{Min: 1, Max: 36, InitMin: 6, InitMax: 18, Step: 2},
+	SoftReleaseMaxRatio: Bound{Min: 0.0, Max: 0.5, InitMin: 0.10, InitMax: 0.30, Step: 0.05},
+	BullTimeDilation:    Bound{Min: 0.5, Max: 3.0, InitMin: 0.8, InitMax: 1.8, Step: 0.2},
+	BearTimeDilation:    Bound{Min: 0.3, Max: 2.0, InitMin: 0.7, InitMax: 1.3, Step: 0.2},
+	BullBetaMultiplier:  Bound{Min: 1.0, Max: 3.0, InitMin: 1.0, InitMax: 1.8, Step: 0.2},
+	BearBetaMultiplier:  Bound{Min: 1.0, Max: 3.0, InitMin: 1.0, InitMax: 1.8, Step: 0.2},
+	MicroReservePct:     Bound{Min: 0.0, Max: 0.8, InitMin: 0.10, InitMax: 0.40, Step: 0.05},
 }
 
 // DefaultSeedChromosome 产品默认冠军种子，作为 GA 冷启动初始个体或 JSON 解码失败的回退。

@@ -20,26 +20,29 @@ func NewSigmoidBTCEvolvable() *SigmoidBTCEvolvable { return &SigmoidBTCEvolvable
 
 func (s *SigmoidBTCEvolvable) StrategyID() string { return sigmoidbtc.StrategyID }
 
-// --- 1. Sample：从合法基因空间均匀采样 ---
-
+// --- 1. Sample：从“合理区”（InitBounds）均匀采样 ---
+//
+// 注意：采样用 InitMin/InitMax（窄区间，避开策略地狱区），
+// 而不是 Min/Max（HardBounds，宽到全员 fatal）。
+// Mutate 仍用 HardBounds，让 GA 后期能突破探索极端值。
 func (s *SigmoidBTCEvolvable) Sample(rng *rand.Rand) Gene {
 	b := quant.HardBounds
 	c := quant.Chromosome{
-		Beta:                uniform(rng, b.Beta.Min, b.Beta.Max),
-		Gamma:               uniform(rng, b.Gamma.Min, b.Gamma.Max),
-		SigmaFloor:          uniform(rng, b.SigmaFloor.Min, b.SigmaFloor.Max),
-		BaseDays:            uniformInt(rng, int(b.BaseDays.Min), int(b.BaseDays.Max)),
-		Multiplier:          uniform(rng, b.Multiplier.Min, b.Multiplier.Max),
-		BetaThreshold:       uniform(rng, b.BetaThreshold.Min, b.BetaThreshold.Max),
-		PriceDiscountBoost:  uniform(rng, b.PriceDiscountBoost.Min, b.PriceDiscountBoost.Max),
-		DeadlineForcePct:    uniform(rng, b.DeadlineForcePct.Min, b.DeadlineForcePct.Max),
-		MinAgeMonths:        uniformInt(rng, int(b.MinAgeMonths.Min), int(b.MinAgeMonths.Max)),
-		SoftReleaseMaxRatio: uniform(rng, b.SoftReleaseMaxRatio.Min, b.SoftReleaseMaxRatio.Max),
-		BullTimeDilation:    uniform(rng, b.BullTimeDilation.Min, b.BullTimeDilation.Max),
-		BearTimeDilation:    uniform(rng, b.BearTimeDilation.Min, b.BearTimeDilation.Max),
-		BullBetaMultiplier:  uniform(rng, b.BullBetaMultiplier.Min, b.BullBetaMultiplier.Max),
-		BearBetaMultiplier:  uniform(rng, b.BearBetaMultiplier.Min, b.BearBetaMultiplier.Max),
-		MicroReservePct:     uniform(rng, b.MicroReservePct.Min, b.MicroReservePct.Max),
+		Beta:                uniform(rng, b.Beta.InitMin, b.Beta.InitMax),
+		Gamma:               uniform(rng, b.Gamma.InitMin, b.Gamma.InitMax),
+		SigmaFloor:          uniform(rng, b.SigmaFloor.InitMin, b.SigmaFloor.InitMax),
+		BaseDays:            uniformInt(rng, int(b.BaseDays.InitMin), int(b.BaseDays.InitMax)),
+		Multiplier:          uniform(rng, b.Multiplier.InitMin, b.Multiplier.InitMax),
+		BetaThreshold:       uniform(rng, b.BetaThreshold.InitMin, b.BetaThreshold.InitMax),
+		PriceDiscountBoost:  uniform(rng, b.PriceDiscountBoost.InitMin, b.PriceDiscountBoost.InitMax),
+		DeadlineForcePct:    uniform(rng, b.DeadlineForcePct.InitMin, b.DeadlineForcePct.InitMax),
+		MinAgeMonths:        uniformInt(rng, int(b.MinAgeMonths.InitMin), int(b.MinAgeMonths.InitMax)),
+		SoftReleaseMaxRatio: uniform(rng, b.SoftReleaseMaxRatio.InitMin, b.SoftReleaseMaxRatio.InitMax),
+		BullTimeDilation:    uniform(rng, b.BullTimeDilation.InitMin, b.BullTimeDilation.InitMax),
+		BearTimeDilation:    uniform(rng, b.BearTimeDilation.InitMin, b.BearTimeDilation.InitMax),
+		BullBetaMultiplier:  uniform(rng, b.BullBetaMultiplier.InitMin, b.BullBetaMultiplier.InitMax),
+		BearBetaMultiplier:  uniform(rng, b.BearBetaMultiplier.InitMin, b.BearBetaMultiplier.InitMax),
+		MicroReservePct:     uniform(rng, b.MicroReservePct.InitMin, b.MicroReservePct.InitMax),
 	}
 	return quant.ClampChromosome(c)
 }
