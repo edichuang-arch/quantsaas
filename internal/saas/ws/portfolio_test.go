@@ -159,6 +159,46 @@ func TestReconciler_FailedExecution_NoTradeRecord(t *testing.T) {
 	assert.Equal(t, int64(0), count)
 }
 
+// FAILED 路径也必须重算 TotalEquity（即使没成交价，至少要把现金部分反映出来）。
+func TestReconciler_FailedExecution_RecomputesTotalEquity(t *testing.T) {
+	db := newTestDB(t)
+	user := store.User{Email: "fe@b.com", PasswordHash: "x", Plan: store.PlanFree, MaxInstances: 1}
+	require.NoError(t, db.Create(&user).Error)
+	inst := store.StrategyInstance{UserID: user.ID, Name: "fe", Symbol: "BTCUSDT", Status: store.InstRunning, InitialCapitalUSDT: 1000}
+	require.NoError(t, db.Create(&inst).Error)
+	// 初始 portfolio：有资产 0.5 BTC + 上次成交价 100，TotalEquity 应该是 1000+0.5*100=1050
+	require.NoError(t, db.Create(&store.PortfolioState{
+		InstanceID: inst.ID, USDTBalance: 1000,
+		FloatStackAsset: 0.5, LastPriceUSDT: 100,
+		TotalEquity: 9999, // 故意写错值，确认 reconciler 会重算
+	}).Error)
+	require.NoError(t, db.Create(&store.SpotExecution{
+		InstanceID: inst.ID, ClientOrderID: "oid-fe", Action: "BUY", Engine: "MICRO",
+		Symbol: "BTCUSDT", LotType: store.LotFloating, AmountUSDT: 50, Status: store.ExecPending,
+	}).Error)
+
+	report := wsproto.DeltaReport{
+		ClientOrderID: "oid-fe",
+		Execution:     &wsproto.ExecutionDetail{ClientOrderID: "oid-fe", Status: "FAILED", ErrorMessage: "x"},
+		// Balance 故意改一点：USDT 从 1000 → 950（外部某事件）
+		Balances: []wsproto.Balance{
+			{Asset: "USDT", Free: "950", Locked: "0"},
+			{Asset: "BTC", Free: "0.5", Locked: "0"},
+		},
+	}
+
+	rec := NewReconciler(db, nil)
+	require.NoError(t, rec.HandleDelta(context.Background(), user.ID, report))
+
+	var pf store.PortfolioState
+	require.NoError(t, db.Where("instance_id = ?", inst.ID).First(&pf).Error)
+	assert.InDelta(t, 950.0, pf.USDTBalance, 1e-6)
+	// TotalEquity = USDT(950) + asset(0.5) × LastPriceUSDT(100) = 1000
+	assert.InDelta(t, 1000.0, pf.TotalEquity, 1e-6, "must be recomputed, not stale 9999")
+	// LastPriceUSDT 沿用旧值（FAILED 路径没有 filledPrice）
+	assert.InDelta(t, 100.0, pf.LastPriceUSDT, 1e-6)
+}
+
 func TestReconciler_InitialSnapshot_RefreshesBalances(t *testing.T) {
 	db := newTestDB(t)
 	user := store.User{Email: "snap@b.com", PasswordHash: "x", Plan: store.PlanFree, MaxInstances: 2}
@@ -185,7 +225,40 @@ func TestReconciler_InitialSnapshot_RefreshesBalances(t *testing.T) {
 	require.Len(t, portfolios, 2)
 	for _, pf := range portfolios {
 		assert.InDelta(t, 5555.0, pf.USDTBalance, 1e-6)
+		// 没有 LastPriceUSDT（首次启动）→ TotalEquity 退化为 USDTBalance
+		assert.InDelta(t, 5555.0, pf.TotalEquity, 1e-6, "fallback to cash when no LastPrice")
 	}
+}
+
+// 初始快照 + 已有 LastPriceUSDT（之前成交过）：TotalEquity 应该按价格重算。
+func TestReconciler_InitialSnapshot_RecomputesEquityWithLastPrice(t *testing.T) {
+	db := newTestDB(t)
+	user := store.User{Email: "snap2@b.com", PasswordHash: "x", Plan: store.PlanFree, MaxInstances: 1}
+	require.NoError(t, db.Create(&user).Error)
+	inst := store.StrategyInstance{UserID: user.ID, Name: "i", Symbol: "BTCUSDT", Status: store.InstRunning, InitialCapitalUSDT: 10000}
+	require.NoError(t, db.Create(&inst).Error)
+	// 已有 LastPriceUSDT=200 + 0.3 BTC（之前成交过）
+	require.NoError(t, db.Create(&store.PortfolioState{
+		InstanceID: inst.ID, USDTBalance: 100,
+		FloatStackAsset: 0.3, LastPriceUSDT: 200,
+		TotalEquity: 1, // 故意写错
+	}).Error)
+
+	// Agent 重启发来快照：USDT 跳到 500（外部充值），BTC 仍 0.3
+	report := wsproto.DeltaReport{
+		Balances: []wsproto.Balance{
+			{Asset: "USDT", Free: "500", Locked: "0"},
+			{Asset: "BTC", Free: "0.3", Locked: "0"},
+		},
+	}
+	rec := NewReconciler(db, nil)
+	require.NoError(t, rec.HandleDelta(context.Background(), user.ID, report))
+
+	var pf store.PortfolioState
+	require.NoError(t, db.Where("instance_id = ?", inst.ID).First(&pf).Error)
+	assert.InDelta(t, 500.0, pf.USDTBalance, 1e-6)
+	// TotalEquity = 500 + 0.3 × 200 = 560
+	assert.InDelta(t, 560.0, pf.TotalEquity, 1e-6, "must use cached LastPriceUSDT")
 }
 
 func TestReconciler_RejectsMismatchedUser(t *testing.T) {

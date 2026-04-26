@@ -164,6 +164,10 @@ func (r *Reconciler) applyFilled(
 }
 
 // applyFailed 只更新 SpotExecution + 刷新 balances，不写 TradeRecord。
+//
+// equity 重算理由：订单虽然失败，但 Balances 可能因其他事件变动
+// （手续费退款、其他订单成交、外部充提），TotalEquity 必须用最新 USDT/资产
+// 重算。LastPriceUSDT 沿用旧值（applyFailed 没有 filledPrice）。
 func (r *Reconciler) applyFailed(
 	ctx context.Context,
 	inst *store.StrategyInstance,
@@ -182,12 +186,18 @@ func (r *Reconciler) applyFailed(
 			return err
 		}
 		applyBalancesToPortfolio(&pf, report.Balances, inst.Symbol)
+		// 与 applyFilled 一致：只要动了 Balances，就用最新现金 + 资产 × 旧 LastPrice 重算
+		pf.TotalEquity = recomputeTotalEquity(&pf)
 		return tx.Save(&pf).Error
 	})
 }
 
 // refreshBalancesForUser 遍历该用户的所有实例，对每个实例用同一份 Balances 刷新
 // （Agent 是账户级，而非实例级，但 Binance 现货一个账户通常对应一个策略/实例）。
+//
+// 初始快照场景：Agent 启动时 push 一次 Balances（无 ClientOrderID）；
+// 这时 PortfolioState.LastPriceUSDT 可能仍是 0（从未成交过），
+// recomputeTotalEquity 会 fallback 为 USDTBalance —— 保守但合理。
 func (r *Reconciler) refreshBalancesForUser(ctx context.Context, userID uint, balances []wsproto.Balance) error {
 	var insts []store.StrategyInstance
 	if err := r.DB.WithContext(ctx).
@@ -202,6 +212,7 @@ func (r *Reconciler) refreshBalancesForUser(ctx context.Context, userID uint, ba
 			continue
 		}
 		applyBalancesToPortfolio(&pf, balances, inst.Symbol)
+		pf.TotalEquity = recomputeTotalEquity(&pf)
 		if err := r.DB.WithContext(ctx).Save(&pf).Error; err != nil {
 			r.Log.Warn("refresh balance failed",
 				zap.Uint("instance_id", inst.ID), zap.Error(err))
