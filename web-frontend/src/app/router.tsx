@@ -7,6 +7,7 @@ import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { TemplatesPage } from '@/features/strategies/TemplatesPage';
 import { InstanceListPage } from '@/features/strategies/InstanceListPage';
 import { InstanceCreatePage } from '@/features/strategies/InstanceCreatePage';
+import { TradesPage } from '@/features/trades/TradesPage';
 import { EvolutionPage } from '@/features/evolution/EvolutionPage';
 import { BacktestingPage } from '@/features/backtesting/BacktestingPage';
 import { AgentsPage } from '@/features/agents/AgentsPage';
@@ -39,6 +40,7 @@ function ShellRoutes() {
       <Route path="templates" element={<TemplatesPage />} />
       <Route path="instances" element={<InstanceListPage />} />
       <Route path="instances/new" element={<InstanceCreatePage />} />
+      <Route path="trades" element={<TradesPage />} />
       <Route path="evolution" element={<EvolutionPage />} />
       <Route path="backtesting" element={<BacktestingPage />} />
       <Route path="agents" element={<AgentsPage />} />

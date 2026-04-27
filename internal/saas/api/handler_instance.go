@@ -140,7 +140,24 @@ func (h *InstanceHandler) GetPortfolio(c *gin.Context) {
 	c.JSON(http.StatusOK, pf)
 }
 
+// TradesResponse 分页+筛选后的成交清单回应。
+type TradesResponse struct {
+	Data     []store.TradeRecord `json:"data"`
+	Page     int                 `json:"page"`
+	PageSize int                 `json:"page_size"`
+	Total    int64               `json:"total"`
+}
+
 // ListTrades GET /api/v1/instances/:id/trades
+//
+// Query params（全部 optional）：
+//   page=1            分页页码（从 1 开始）
+//   page_size=50      每页笔数（上限 200）
+//   action=BUY|SELL   动作筛选
+//   engine=MACRO|MICRO Engine 筛选
+//   lot_type=DEAD_STACK|FLOATING|COLD_SEALED  Lot 类型筛选
+//
+// 回应固定为 TradesResponse。
 func (h *InstanceHandler) ListTrades(c *gin.Context) {
 	claims := getClaims(c)
 	id, err := parseUintParam(c, "id")
@@ -154,15 +171,57 @@ func (h *InstanceHandler) ListTrades(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "instance not found"})
 		return
 	}
-	var trades []store.TradeRecord
-	if err := h.DB.WithContext(c.Request.Context()).
-		Where("instance_id = ?", id).
-		Order("created_at DESC").
-		Limit(100).Find(&trades).Error; err != nil {
+
+	page := parseIntDefault(c.Query("page"), 1, 1, 100000)
+	pageSize := parseIntDefault(c.Query("page_size"), 50, 1, 200)
+
+	q := h.DB.WithContext(c.Request.Context()).Model(&store.TradeRecord{}).
+		Where("instance_id = ?", id)
+	if action := c.Query("action"); action != "" {
+		q = q.Where("action = ?", action)
+	}
+	if engine := c.Query("engine"); engine != "" {
+		q = q.Where("engine = ?", engine)
+	}
+	if lotType := c.Query("lot_type"); lotType != "" {
+		q = q.Where("lot_type = ?", lotType)
+	}
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, trades)
+
+	var trades []store.TradeRecord
+	if err := q.Order("created_at DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&trades).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, TradesResponse{
+		Data: trades, Page: page, PageSize: pageSize, Total: total,
+	})
+}
+
+// parseIntDefault 解析 query string int；解析失败或越界 fallback 为 def。
+func parseIntDefault(raw string, def, lo, hi int) int {
+	if raw == "" {
+		return def
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return def
+	}
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // --- 私有工具 ---
