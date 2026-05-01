@@ -6,6 +6,46 @@ import (
 	"github.com/edi/quantsaas/internal/quant"
 )
 
+// 硬风控阀值。这些是策略级硬规则，不进入基因组（防止 GA 演化出绕过风控的解）。
+//
+// 设计动机（详见 docs/2026-04-28-sigmafloor-bug.md）：
+//   - 4/28 真实 BTC 365 天回测发现策略 MaxDD = 98.29%，远超 BTC 自身 52% 跌幅
+//   - 死亡螺旋：跌中 Micro 持续加仓 → USDT 燒光 → 滿倉等反彈，跌幅再放大
+//   - 解法：当流动性或仓位达到危险阈值时，硬性禁止 BUY；让市场反弹时 SELL 自我救赎
+//
+// 注意：这两条守门只阻止 BUY，从不强制 SELL。SELL 仍由 Sigmoid 引擎自由决策。
+const (
+	// HardCashFloorRatio: USDT 现金 < 总权益 × 此比例时禁止 BUY。
+	// 0.10 = 至少保留 10% 现金应对回撤。
+	HardCashFloorRatio = 0.10
+
+	// HardPositionCeiling: 资产持仓 / 总权益 > 此比例时禁止 BUY。
+	// 0.90 = 倉位最高 90%，永远保留 ≥10% 现金做反向操作。
+	HardPositionCeiling = 0.90
+)
+
+// shouldBlockBuy 检查 portfolio 是否应该拒绝 BUY intent。
+//
+// SELL 不受此守门影响：处于满仓状态时反而需要 SELL 来恢复流动性。
+// totalEquity ≤ 0 时返回 false（数据异常，保守不拦）。
+func shouldBlockBuy(p quant.PortfolioSnapshot, totalEquity float64) (bool, string) {
+	if totalEquity <= 0 {
+		return false, ""
+	}
+	cashRatio := p.USDTBalance / totalEquity
+	if cashRatio < HardCashFloorRatio {
+		return true, fmt.Sprintf("hard_cash_floor: usdt=%.1f%% < %.0f%%",
+			cashRatio*100, HardCashFloorRatio*100)
+	}
+	posValue := (p.DeadStackAsset + p.FloatStackAsset + p.ColdSealedAsset) * p.CurrentPrice
+	posRatio := posValue / totalEquity
+	if posRatio > HardPositionCeiling {
+		return true, fmt.Sprintf("hard_position_ceiling: pos=%.1f%% > %.0f%%",
+			posRatio*100, HardPositionCeiling*100)
+	}
+	return false, ""
+}
+
 // Step 是本策略对外的唯一入口（铁律 #2 策略同构）：
 //
 //   - 回测适配器与实盘 cron tick 都通过此函数推进
@@ -24,6 +64,8 @@ import (
 //   8. 组装 StrategyOutput 返回
 func Step(in quant.StrategyInput, params Params) quant.StrategyOutput {
 	out := quant.StrategyOutput{NewRuntime: ensureExtras(in.PrevRuntime)}
+	// 硬风控守门触发时记录理由，最后并入 DecisionReason
+	var blockedMacroReason, blockedMicroReason string
 
 	// 1. 数据窗口充足性检查。取所有引擎中最长的窗口。
 	minBars := quant.MicroVolRatioLongBars // 微观 MAV 长窗：112
@@ -53,9 +95,16 @@ func Step(in quant.StrategyInput, params Params) quant.StrategyOutput {
 			out.SkipReason = "macro produced non-BUY/non-DEAD_STACK intent (iron law violation)"
 			return out
 		}
-		// 扣除已分配的 macro 预算以免 macro + micro 合计超过 spendable
-		spendable -= macroOut.Intent.AmountUSDT
-		out.Intents = append(out.Intents, *macroOut.Intent)
+		// 硬风控守门：现金水位下限 + 仓位上限（参见 docs/2026-04-28-sigmafloor-bug.md）
+		if block, reason := shouldBlockBuy(in.Portfolio, totalEquity); block {
+			out.NewRuntime.Extras[ExtraKeyLastBlockedMacroMs] = float64(in.NowMs)
+			blockedMacroReason = reason
+			// 直接丢弃 macro intent，不计入 out.Intents
+		} else {
+			// 扣除已分配的 macro 预算以免 macro + micro 合计超过 spendable
+			spendable -= macroOut.Intent.AmountUSDT
+			out.Intents = append(out.Intents, *macroOut.Intent)
+		}
 	}
 
 	// 5. 微观引擎
@@ -68,6 +117,14 @@ func Step(in quant.StrategyInput, params Params) quant.StrategyOutput {
 				microIntent.AmountUSDT = quant.RoundToUSDT(spendable)
 			}
 			if microIntent.AmountUSDT < quant.MicroMinOrderUSDT {
+				microIntent = nil
+			}
+		}
+		// 硬风控守门：BUY 才检查（SELL 永远放行，反而是恢复流动性的手段）
+		if microIntent != nil && microIntent.Action == quant.ActionBuy {
+			if block, reason := shouldBlockBuy(in.Portfolio, totalEquity); block {
+				out.NewRuntime.Extras[ExtraKeyLastBlockedMicroMs] = float64(in.NowMs)
+				blockedMicroReason = reason
 				microIntent = nil
 			}
 		}
@@ -91,11 +148,18 @@ func Step(in quant.StrategyInput, params Params) quant.StrategyOutput {
 	// 7. 更新 RuntimeState：推进处理光标
 	out.NewRuntime.LastProcessedBarTime = in.NowMs
 
-	// 8. 决策摘要
-	out.DecisionReason = fmt.Sprintf(
+	// 8. 决策摘要（含硬风控触发理由，便于运维一眼看到为什么没下单）
+	reason := fmt.Sprintf(
 		"state=%s macro=%s micro=%+v",
 		state.Kind, macroOut.Reason, summarizeMicro(microOut),
 	)
+	if blockedMacroReason != "" {
+		reason += " | block_macro=" + blockedMacroReason
+	}
+	if blockedMicroReason != "" {
+		reason += " | block_micro=" + blockedMicroReason
+	}
+	out.DecisionReason = reason
 	return out
 }
 

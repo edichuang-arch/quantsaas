@@ -11,6 +11,9 @@ import "github.com/edi/quantsaas/internal/quant"
 const (
 	ExtraKeyLastMicroDecisionMs = "last_micro_decision_ms"
 	ExtraKeyLastReleaseMs       = "last_release_ms"
+	// 硬风控守门触发时间戳。理由字串放在 StrategyOutput.DecisionReason 中。
+	ExtraKeyLastBlockedMacroMs = "last_blocked_macro_ms"
+	ExtraKeyLastBlockedMicroMs = "last_blocked_micro_ms"
 )
 
 // ensureExtras 确保 Extras map 非 nil，便于后续写入。

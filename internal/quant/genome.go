@@ -8,15 +8,20 @@ import (
 // Chromosome 是 sigmoid-btc 策略的可进化参数集合。
 // GA 对 16 个浮点字段做均匀交叉与加性高斯变异；字段边界由 HardBounds 定义。
 // 参数分成三组：
-//   - 微观 Sigmoid（β / γ / SigmaFloor）
+//   - 微观 Sigmoid（β / γ / SigmaFloorPct）
 //   - 微观楔形过滤（MinTradeDelta / WedgeVolThreshold）  [预留：当前以常量实现]
 //   - 宏观 DCA（BaseDays / Multiplier / BetaThreshold / PriceDiscountBoost / DeadlineForcePct）
 //   - 市场状态乘数（BullTimeDilation / BearTimeDilation / QuietBetaMultiplier）
 type Chromosome struct {
 	// 微观 Sigmoid
-	Beta       float64 `json:"beta"`
-	Gamma      float64 `json:"gamma"`
-	SigmaFloor float64 `json:"sigma_floor"`
+	Beta float64 `json:"beta"`
+	Gamma float64 `json:"gamma"`
+	// SigmaFloorPct 是 σ 的百分比下限（占当前价的比例）。
+	// 当实际 σ 小于 (currentPrice × SigmaFloorPct) 时使用百分比下限，避免极平坦市场
+	// 导致 σ→0 → signal 爆炸。例如 0.001 = σ ≥ 0.1% × price，BTC $100k 时下限 $100。
+	// 历史背景：早期版本是绝对值 SigmaFloor（USDT），但 BTC 涨到 $126k 时 50 USDT 的
+	// 下限只占 0.04%，保护失效，导致 365 天回测 MaxDD = 98%。详见 docs/2026-04-28-sigmafloor-bug.md。
+	SigmaFloorPct float64 `json:"sigma_floor_pct"`
 
 	// 宏观 DCA
 	BaseDays           int     `json:"base_days"`
@@ -65,7 +70,7 @@ type Bound struct {
 var HardBounds = struct {
 	Beta                Bound
 	Gamma               Bound
-	SigmaFloor          Bound
+	SigmaFloorPct       Bound
 	BaseDays            Bound
 	Multiplier          Bound
 	BetaThreshold       Bound
@@ -81,7 +86,13 @@ var HardBounds = struct {
 }{
 	Beta:                Bound{Min: 0.1, Max: 5.0, InitMin: 0.5, InitMax: 2.0, Step: 0.3},
 	Gamma:               Bound{Min: 0.0, Max: 3.0, InitMin: 0.0, InitMax: 1.0, Step: 0.2},
-	SigmaFloor:          Bound{Min: 0.0, Max: 500.0, InitMin: 50.0, InitMax: 200.0, Step: 20.0},
+	// SigmaFloorPct: σ 占当前价百分比下限。
+	//   0       不保护（极平坦市场会让 signal 爆炸）
+	//   0.0005  0.05%（弱保护）
+	//   0.0008  0.08%（DefaultSeed，等同旧版 BTC $60k 时的 50 USDT 行为）
+	//   0.0025  0.25%（强保护，几乎所有抖动都在容忍内）
+	//   0.01    1%（最强；mutation 极端值才会到这里）
+	SigmaFloorPct:       Bound{Min: 0.0, Max: 0.01, InitMin: 0.0005, InitMax: 0.0025, Step: 0.0003},
 	BaseDays:            Bound{Min: 1, Max: 30, InitMin: 7, InitMax: 21, Step: 2},
 	Multiplier:          Bound{Min: 0.2, Max: 3.0, InitMin: 0.5, InitMax: 1.5, Step: 0.2},
 	BetaThreshold:       Bound{Min: 0.0, Max: 0.3, InitMin: 0.05, InitMax: 0.15, Step: 0.02},
@@ -99,21 +110,21 @@ var HardBounds = struct {
 // DefaultSeedChromosome 产品默认冠军种子，作为 GA 冷启动初始个体或 JSON 解码失败的回退。
 // 数值经验值，非精调结果，仅保证合法并有基本动能。
 var DefaultSeedChromosome = Chromosome{
-	Beta:                 1.5,
-	Gamma:                1.0,
-	SigmaFloor:           50.0,
-	BaseDays:             7,
-	Multiplier:           1.0,
-	BetaThreshold:        0.05,
-	PriceDiscountBoost:   1.5,
-	DeadlineForcePct:     0.5,
-	MinAgeMonths:         6,
-	SoftReleaseMaxRatio:  0.10,
-	BullTimeDilation:     1.5,
-	BearTimeDilation:     0.75,
-	BullBetaMultiplier:   1.3,
-	BearBetaMultiplier:   1.3,
-	MicroReservePct:      0.25,
+	Beta:                1.5,
+	Gamma:               1.0,
+	SigmaFloorPct:       0.0008, // 0.08%，等同旧版 BTC $60k 时的 50 USDT 行为
+	BaseDays:            7,
+	Multiplier:          1.0,
+	BetaThreshold:       0.05,
+	PriceDiscountBoost:  1.5,
+	DeadlineForcePct:    0.5,
+	MinAgeMonths:        6,
+	SoftReleaseMaxRatio: 0.10,
+	BullTimeDilation:    1.5,
+	BearTimeDilation:    0.75,
+	BullBetaMultiplier:  1.3,
+	BearBetaMultiplier:  1.3,
+	MicroReservePct:     0.25,
 }
 
 // ClampChromosome 将所有字段夹紧到 HardBounds 内，并修复结构约束。
@@ -121,7 +132,7 @@ var DefaultSeedChromosome = Chromosome{
 func ClampChromosome(c Chromosome) Chromosome {
 	c.Beta = ClipFloat64(c.Beta, HardBounds.Beta.Min, HardBounds.Beta.Max)
 	c.Gamma = ClipFloat64(c.Gamma, HardBounds.Gamma.Min, HardBounds.Gamma.Max)
-	c.SigmaFloor = ClipFloat64(c.SigmaFloor, HardBounds.SigmaFloor.Min, HardBounds.SigmaFloor.Max)
+	c.SigmaFloorPct = ClipFloat64(c.SigmaFloorPct, HardBounds.SigmaFloorPct.Min, HardBounds.SigmaFloorPct.Max)
 	c.BaseDays = clampInt(c.BaseDays, int(HardBounds.BaseDays.Min), int(HardBounds.BaseDays.Max))
 	c.Multiplier = ClipFloat64(c.Multiplier, HardBounds.Multiplier.Min, HardBounds.Multiplier.Max)
 	c.BetaThreshold = ClipFloat64(c.BetaThreshold, HardBounds.BetaThreshold.Min, HardBounds.BetaThreshold.Max)
@@ -202,7 +213,7 @@ func DecodeParamPack(raw []byte) (Chromosome, SpawnPoint) {
 
 // ValidateChromosome 额外结构检查（除 Clamp 之外的硬规则）。
 func ValidateChromosome(c Chromosome) error {
-	if math.IsNaN(c.Beta) || math.IsNaN(c.Gamma) || math.IsNaN(c.SigmaFloor) {
+	if math.IsNaN(c.Beta) || math.IsNaN(c.Gamma) || math.IsNaN(c.SigmaFloorPct) {
 		return ErrChromosomeNaN
 	}
 	return nil

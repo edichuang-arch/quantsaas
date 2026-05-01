@@ -124,7 +124,7 @@ func sampleFromHardBounds(rng *rand.Rand) Gene {
 	c := quant.Chromosome{
 		Beta:                uniform(rng, b.Beta.Min, b.Beta.Max),
 		Gamma:               uniform(rng, b.Gamma.Min, b.Gamma.Max),
-		SigmaFloor:          uniform(rng, b.SigmaFloor.Min, b.SigmaFloor.Max),
+		SigmaFloorPct:       uniform(rng, b.SigmaFloorPct.Min, b.SigmaFloorPct.Max),
 		BaseDays:            uniformInt(rng, int(b.BaseDays.Min), int(b.BaseDays.Max)),
 		Multiplier:          uniform(rng, b.Multiplier.Min, b.Multiplier.Max),
 		BetaThreshold:       uniform(rng, b.BetaThreshold.Min, b.BetaThreshold.Max),

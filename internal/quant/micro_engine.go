@@ -46,9 +46,15 @@ type MicroInput struct {
 	CurrentWeight float64 // FloatStack × Price / TotalEquity
 
 	// 可进化参数
-	Beta      float64 // Sigmoid 激进系数（β）
-	Gamma     float64 // 仓位偏置系数（γ）
-	SigmaFloor float64 // σ 的最小值保护（防止极平坦市场 σ 趋 0 导致 signal 爆炸）
+	Beta float64 // Sigmoid 激进系数（β）
+	Gamma float64 // 仓位偏置系数（γ）
+	// SigmaFloorPct σ 的百分比下限（占当前价比例）。
+	// 实际 σ 下限 = max(stdDev, currentPrice × SigmaFloorPct)。
+	// 例如 0.001 = 0.1% × price；BTC $100k 时下限 $100。
+	// 设计为百分比是为了在 BTC 价格大幅波动（$60k–$126k）时保持稳定保护强度。
+	// 历史问题：早期版本是绝对值 SigmaFloor，BTC 涨高后保护比例失效，详见
+	// docs/2026-04-28-sigmafloor-bug.md。
+	SigmaFloorPct float64
 
 	// 来自市场状态感知层
 	BetaMultiplier float64 // >1.0 时极端行情放大 β；1.0 为正常
@@ -88,11 +94,15 @@ func ComputeMicroDecision(in MicroInput) MicroOutput {
 		return out
 	}
 
-	// Step 1：EMA 与 σ。
+	// Step 1：EMA 与 σ。σ 下限以「百分比 × 当前价」为锚，保证 BTC 在 $60k 与 $126k 时
+	// 保护比例一致（不像旧版 SigmaFloor=50 USDT 在高价时变成 0.04% 失效保护）。
 	ema := EMA(in.Closes, MicroSignalEMABars)
 	sigma := StdDev(in.Closes, MicroSignalStdDevBars)
-	if in.SigmaFloor > 0 && sigma < in.SigmaFloor {
-		sigma = in.SigmaFloor
+	if in.SigmaFloorPct > 0 && in.CurrentPrice > 0 {
+		floor := in.CurrentPrice * in.SigmaFloorPct
+		if sigma < floor {
+			sigma = floor
+		}
 	}
 	if sigma <= 0 || math.IsNaN(sigma) {
 		out.Skipped = true

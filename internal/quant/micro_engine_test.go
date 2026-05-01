@@ -36,7 +36,7 @@ func TestSigmoid_PositiveSignalReducesTarget(t *testing.T) {
 		CurrentWeight:  0.5,
 		Beta:           1.5,
 		Gamma:          1.0,
-		SigmaFloor:     0.01,
+		SigmaFloorPct:  0.0001,
 		BetaMultiplier: 1.0,
 	}
 	out := ComputeMicroDecision(in)
@@ -55,7 +55,7 @@ func TestSigmoid_NegativeSignalRaisesTarget(t *testing.T) {
 		CurrentWeight:  0.5,
 		Beta:           1.5,
 		Gamma:          1.0,
-		SigmaFloor:     0.01,
+		SigmaFloorPct:  0.0001,
 		BetaMultiplier: 1.0,
 	}
 	out := ComputeMicroDecision(in)
@@ -75,7 +75,7 @@ func TestSigmoid_NeutralWeightGivesNeutralTarget(t *testing.T) {
 		CurrentWeight:  0.5,
 		Beta:           1.5,
 		Gamma:          2.0, // gamma > 0 有启用
-		SigmaFloor:     0.1, // 防止 sigma = 0 → skip
+		SigmaFloorPct:  0.001, // 防止 sigma = 0 → skip
 		BetaMultiplier: 1.0,
 	}
 	out := ComputeMicroDecision(in)
@@ -95,7 +95,7 @@ func TestSigmoid_Deterministic(t *testing.T) {
 			CurrentWeight:  0.3,
 			Beta:           1.5,
 			Gamma:          1.0,
-			SigmaFloor:     0.01,
+			SigmaFloorPct:  0.0001,
 			BetaMultiplier: 1.2,
 		}
 	}
@@ -115,7 +115,7 @@ func TestSigmoid_QuietDustOrderSilenced(t *testing.T) {
 		CurrentWeight:  0.45,
 		Beta:           1.5,
 		Gamma:          1.0,
-		SigmaFloor:     0.1,
+		SigmaFloorPct:  0.001,
 		BetaMultiplier: 1.0,
 		IsQuiet:        true,
 	}
@@ -139,7 +139,7 @@ func TestSigmoid_WedgeForcesMinOrder(t *testing.T) {
 		CurrentWeight:  0.45,
 		Beta:           1.5,
 		Gamma:          1.0,
-		SigmaFloor:     0.1,
+		SigmaFloorPct:  0.001,
 		BetaMultiplier: 1.0,
 		IsQuiet:        false,
 	}
@@ -174,7 +174,7 @@ func TestSigmoid_ZeroSigmaSkipped(t *testing.T) {
 		TotalEquity:   1000,
 		CurrentWeight: 0.5,
 		Beta:          1.0,
-		SigmaFloor:    0, // 不保护 → 常数序列 sigma=0
+		SigmaFloorPct: 0, // 不保护 → 常数序列 sigma=0
 	}
 	out := ComputeMicroDecision(in)
 	assert.True(t, out.Skipped)
@@ -186,7 +186,7 @@ func TestSigmoid_BetaMultiplierAmplifies(t *testing.T) {
 	closes := buildCloses(100, 120, 150)
 	base := MicroInput{
 		Closes: closes, CurrentPrice: 120, TotalEquity: 10000, CurrentWeight: 0.5,
-		Beta: 1.0, Gamma: 0, SigmaFloor: 0.01,
+		Beta: 1.0, Gamma: 0, SigmaFloorPct: 0.0001,
 	}
 	base.BetaMultiplier = 1.0
 	baseline := ComputeMicroDecision(base)

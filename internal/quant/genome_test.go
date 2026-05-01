@@ -18,7 +18,7 @@ func TestClampChromosome_BelowMin(t *testing.T) {
 	c := Chromosome{
 		Beta:                -10, // min 0.1
 		Gamma:               -1,  // min 0
-		SigmaFloor:          -1,
+		SigmaFloorPct:       -1,
 		BaseDays:            0,   // min 1
 		Multiplier:          -1,  // min 0.2
 		BetaThreshold:       -1,
@@ -44,7 +44,7 @@ func TestClampChromosome_AboveMax(t *testing.T) {
 	c := Chromosome{
 		Beta:                100,
 		Gamma:               100,
-		SigmaFloor:          9999,
+		SigmaFloorPct:       9999,
 		BaseDays:             999,
 		Multiplier:          999,
 		BetaThreshold:       999,

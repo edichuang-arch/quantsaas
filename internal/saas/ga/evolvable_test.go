@@ -26,8 +26,8 @@ func TestSample_WithinInitBounds(t *testing.T) {
 		assert.LessOrEqual(t, c.Beta, b.Beta.InitMax)
 		assert.GreaterOrEqual(t, c.Gamma, b.Gamma.InitMin)
 		assert.LessOrEqual(t, c.Gamma, b.Gamma.InitMax)
-		assert.GreaterOrEqual(t, c.SigmaFloor, b.SigmaFloor.InitMin)
-		assert.LessOrEqual(t, c.SigmaFloor, b.SigmaFloor.InitMax)
+		assert.GreaterOrEqual(t, c.SigmaFloorPct, b.SigmaFloorPct.InitMin)
+		assert.LessOrEqual(t, c.SigmaFloorPct, b.SigmaFloorPct.InitMax)
 		assert.GreaterOrEqual(t, c.BaseDays, int(b.BaseDays.InitMin))
 		assert.LessOrEqual(t, c.BaseDays, int(b.BaseDays.InitMax))
 		assert.GreaterOrEqual(t, c.Multiplier, b.Multiplier.InitMin)
@@ -65,7 +65,7 @@ func TestInitBounds_SubsetOfHardBounds(t *testing.T) {
 	}{
 		{"Beta", b.Beta},
 		{"Gamma", b.Gamma},
-		{"SigmaFloor", b.SigmaFloor},
+		{"SigmaFloorPct", b.SigmaFloorPct},
 		{"BaseDays", b.BaseDays},
 		{"Multiplier", b.Multiplier},
 		{"BetaThreshold", b.BetaThreshold},
@@ -103,8 +103,8 @@ func TestMutate_RespectsHardBounds(t *testing.T) {
 		c := g.(quant.Chromosome)
 		assert.GreaterOrEqual(t, c.Beta, b.Beta.Min)
 		assert.LessOrEqual(t, c.Beta, b.Beta.Max)
-		assert.GreaterOrEqual(t, c.SigmaFloor, b.SigmaFloor.Min)
-		assert.LessOrEqual(t, c.SigmaFloor, b.SigmaFloor.Max)
+		assert.GreaterOrEqual(t, c.SigmaFloorPct, b.SigmaFloorPct.Min)
+		assert.LessOrEqual(t, c.SigmaFloorPct, b.SigmaFloorPct.Max)
 		assert.GreaterOrEqual(t, c.MicroReservePct, b.MicroReservePct.Min)
 		assert.LessOrEqual(t, c.MicroReservePct, b.MicroReservePct.Max)
 	}

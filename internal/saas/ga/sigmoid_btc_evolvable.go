@@ -30,7 +30,7 @@ func (s *SigmoidBTCEvolvable) Sample(rng *rand.Rand) Gene {
 	c := quant.Chromosome{
 		Beta:                uniform(rng, b.Beta.InitMin, b.Beta.InitMax),
 		Gamma:               uniform(rng, b.Gamma.InitMin, b.Gamma.InitMax),
-		SigmaFloor:          uniform(rng, b.SigmaFloor.InitMin, b.SigmaFloor.InitMax),
+		SigmaFloorPct:       uniform(rng, b.SigmaFloorPct.InitMin, b.SigmaFloorPct.InitMax),
 		BaseDays:            uniformInt(rng, int(b.BaseDays.InitMin), int(b.BaseDays.InitMax)),
 		Multiplier:          uniform(rng, b.Multiplier.InitMin, b.Multiplier.InitMax),
 		BetaThreshold:       uniform(rng, b.BetaThreshold.InitMin, b.BetaThreshold.InitMax),
@@ -64,7 +64,7 @@ func (s *SigmoidBTCEvolvable) Mutate(c Gene, prob, scale float64, rng *rand.Rand
 	}
 	mutate(&cur.Beta, b.Beta)
 	mutate(&cur.Gamma, b.Gamma)
-	mutate(&cur.SigmaFloor, b.SigmaFloor)
+	mutate(&cur.SigmaFloorPct, b.SigmaFloorPct)
 	mutateInt(&cur.BaseDays, b.BaseDays)
 	mutate(&cur.Multiplier, b.Multiplier)
 	mutate(&cur.BetaThreshold, b.BetaThreshold)
@@ -100,7 +100,7 @@ func (s *SigmoidBTCEvolvable) Crossover(p1, p2 Gene, rng *rand.Rand) Gene {
 	child := quant.Chromosome{
 		Beta:                pick(a.Beta, b.Beta),
 		Gamma:               pick(a.Gamma, b.Gamma),
-		SigmaFloor:          pick(a.SigmaFloor, b.SigmaFloor),
+		SigmaFloorPct:       pick(a.SigmaFloorPct, b.SigmaFloorPct),
 		BaseDays:            pickInt(a.BaseDays, b.BaseDays),
 		Multiplier:          pick(a.Multiplier, b.Multiplier),
 		BetaThreshold:       pick(a.BetaThreshold, b.BetaThreshold),
@@ -130,7 +130,7 @@ func (s *SigmoidBTCEvolvable) Fingerprint(c Gene) uint64 {
 	}
 	quantize(cur.Beta)
 	quantize(cur.Gamma)
-	quantize(cur.SigmaFloor)
+	quantize(cur.SigmaFloorPct)
 	quantize(float64(cur.BaseDays))
 	quantize(cur.Multiplier)
 	quantize(cur.BetaThreshold)

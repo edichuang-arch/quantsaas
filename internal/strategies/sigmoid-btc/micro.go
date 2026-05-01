@@ -18,11 +18,11 @@ func runMicro(
 		CurrentPrice:  in.Portfolio.CurrentPrice,
 		TotalEquity:   totalEquity,
 		CurrentWeight: in.Portfolio.CurrentMicroWeight(),
-		Beta:          c.Beta,
-		Gamma:         c.Gamma,
-		SigmaFloor:    c.SigmaFloor,
+		Beta:           c.Beta,
+		Gamma:          c.Gamma,
+		SigmaFloorPct:  c.SigmaFloorPct,
 		BetaMultiplier: adjusted.BetaMultiplier,
-		IsQuiet:       adjusted.IsQuiet,
+		IsQuiet:        adjusted.IsQuiet,
 	}
 	return quant.ComputeMicroDecision(mi)
 }
