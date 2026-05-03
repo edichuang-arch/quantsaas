@@ -10,10 +10,11 @@ import (
 //
 // 设计动机（详见 docs/2026-04-28-sigmafloor-bug.md）：
 //   - 4/28 真实 BTC 365 天回测发现策略 MaxDD = 98.29%，远超 BTC 自身 52% 跌幅
+//   - 5/2 OnBar 诊断发现 6 个月成交 45,561 笔，手续费 $11,066 烧光本金（千刀割死）
 //   - 死亡螺旋：跌中 Micro 持续加仓 → USDT 燒光 → 滿倉等反彈，跌幅再放大
-//   - 解法：当流动性或仓位达到危险阈值时，硬性禁止 BUY；让市场反弹时 SELL 自我救赎
+//   - 解法：流动性/仓位守门 + 最小信号门槛 + 冷却时间，三层防御
 //
-// 注意：这两条守门只阻止 BUY，从不强制 SELL。SELL 仍由 Sigmoid 引擎自由决策。
+// 注意：守门只阻止 BUY，从不强制 SELL。SELL 仍由 Sigmoid 引擎自由决策。
 const (
 	// HardCashFloorRatio: USDT 现金 < 总权益 × 此比例时禁止 BUY。
 	// 0.10 = 至少保留 10% 现金应对回撤。
@@ -22,6 +23,11 @@ const (
 	// HardPositionCeiling: 资产持仓 / 总权益 > 此比例时禁止 BUY。
 	// 0.90 = 倉位最高 90%，永远保留 ≥10% 现金做反向操作。
 	HardPositionCeiling = 0.90
+
+	// MicroCooldownMs: 两次 micro 决策的最小间隔。
+	// 1 小时 = 12 根 5m K 线，避免在 5m 时间尺度上反复进出导致手续费燒乾。
+	// 这是「过度交易防御」的时间维度补充（金额维度由 MicroMinDeltaWeight 守门）。
+	MicroCooldownMs = 60 * 60 * 1000
 )
 
 // shouldBlockBuy 检查 portfolio 是否应该拒绝 BUY intent。
@@ -107,9 +113,22 @@ func Step(in quant.StrategyInput, params Params) quant.StrategyOutput {
 		}
 	}
 
-	// 5. 微观引擎
-	microOut := runMicro(in, params, state, totalEquity)
-	microIntent := translateMicroToIntent(microOut, in.Portfolio.CurrentPrice)
+	// 5. 微观引擎（含冷却时间守门）。
+	//
+	// 冷却时间动机：5m K 线尺度下 micro 信号大量是噪音，反复进出会被手续费燒乾。
+	// 距上次 micro 决策时间 < MicroCooldownMs 时直接跳过，不浪费 CPU 也不下单。
+	var microIntent *quant.TradeIntent
+	var microOut quant.MicroOutput
+	lastMicroMs := int64(in.PrevRuntime.Extras[ExtraKeyLastMicroDecisionMs])
+	microCoolingDown := lastMicroMs > 0 && in.NowMs-lastMicroMs < MicroCooldownMs
+
+	if microCoolingDown {
+		// 跳过整个 micro 计算 + 下单，但保留 reason 让 dashboard 看到
+		microOut = quant.MicroOutput{Skipped: true, SkipReason: "cooldown"}
+	} else {
+		microOut = runMicro(in, params, state, totalEquity)
+		microIntent = translateMicroToIntent(microOut, in.Portfolio.CurrentPrice)
+	}
 	if microIntent != nil {
 		// BUY 的 USDT 金额也要受 spendable 限制
 		if microIntent.Action == quant.ActionBuy {

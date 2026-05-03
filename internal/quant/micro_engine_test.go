@@ -181,6 +181,35 @@ func TestSigmoid_ZeroSigmaSkipped(t *testing.T) {
 	assert.Contains(t, out.SkipReason, "sigma")
 }
 
+// 性质：DeltaWeight 太小（< MicroMinDeltaWeight）→ OrderUSD = 0，
+// 即使 absTheoreticalUSD 远大于 MicroMinOrderUSDT。
+//
+// 这是过度交易防御的关键：在大账户里小幅信号不该触发交易。
+func TestSigmoid_TinyDeltaBlocked(t *testing.T) {
+	// 构造：CurrentWeight=0.499，常数价 → Signal=0，InventoryBias=-0.001
+	// Exponent = 1.5 × 0 + 1.0 × (-0.001) = -0.001，TargetWeight ≈ 0.500250
+	// DeltaWeight ≈ 0.001 < MicroMinDeltaWeight (0.005) → 应该被拦
+	closes := buildCloses(100, 100, 150)
+	in := MicroInput{
+		Closes:         closes,
+		CurrentPrice:   100,
+		TotalEquity:    1_000_000, // 大账户：DeltaWeight 0.001 × 1M = $1000，远超 $10.1 wedge
+		CurrentWeight:  0.499,
+		Beta:           1.5,
+		Gamma:          1.0,
+		SigmaFloorPct:  0.001,
+		BetaMultiplier: 1.0,
+	}
+	out := ComputeMicroDecision(in)
+	require.False(t, out.Skipped)
+	assert.Less(t, math.Abs(out.DeltaWeight), MicroMinDeltaWeight,
+		"precondition: DeltaWeight should be small")
+	assert.Greater(t, math.Abs(out.TheoreticalUSD), MicroMinOrderUSDT,
+		"precondition: TheoreticalUSD should be large enough to normally trigger")
+	assert.Equal(t, 0.0, out.OrderUSD,
+		"order should be blocked because DeltaWeight < MicroMinDeltaWeight")
+}
+
 // 额外：BetaMultiplier 确实放大 exponent 的影响
 func TestSigmoid_BetaMultiplierAmplifies(t *testing.T) {
 	closes := buildCloses(100, 120, 150)

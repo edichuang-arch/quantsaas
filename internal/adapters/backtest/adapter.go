@@ -63,6 +63,27 @@ type Config struct {
 	Step StepFunc
 	// Symbol 用于 StrategyInput，通常是 "BTCUSDT"。
 	Symbol string
+	// OnBar 可选的诊断 callback，每根 bar 在 Step + 撮合 + NAV 更新后调用一次。
+	// nil 时完全不影响性能/行为。用于 debug 类 probe（找 MaxDD 炸点等）。
+	OnBar func(BarDiag)
+}
+
+// BarDiag backtest 单根 bar 的诊断快照。
+type BarDiag struct {
+	I            int     // bar 索引
+	OpenTime     int64   // bar 开始时间（毫秒）
+	Price        float64 // 当根 close
+	USDTBalance  float64
+	DeadStack    float64
+	FloatStack   float64
+	ColdSealed   float64
+	Equity       float64
+	IsEvalRange  bool   // false 表示在 warmup 区间
+	NumIntents   int    // 本根 bar 策略产出的 intent 数
+	NumExecuted  int    // 本根 bar 实际成交的 intent 数（被资金不足/最小量等拒绝的不算）
+	BuyExecUSDT  float64 // 本根 bar 实际买入 USDT 总额
+	SellExecUSDT float64 // 本根 bar 实际卖出 USDT 总额
+	DecisionReason string
 }
 
 // Run 按时间升序遍历 bars，驱动 Step()，返回 Result。
@@ -138,6 +159,8 @@ func Run(bars []quant.Bar, cfg Config, evalStartMs int64) Result {
 		rt = out.NewRuntime
 
 		// 撮合意图（只在 evalStart 之后统计成交，warmup 阶段不产生交易记录）
+		var diagBuyUSDT, diagSellUSDT float64
+		var diagExecuted int
 		if i >= startIdx {
 			for _, intent := range out.Intents {
 				ex, ok := matchIntent(state, intent, b.Close, cfg)
@@ -147,7 +170,12 @@ func Run(bars []quant.Bar, cfg Config, evalStartMs int64) Result {
 				applyExecution(state, ex)
 				res.NumTrades++
 				res.TotalFeeUSDT += ex.Fee
-				// 对数收益率（以当前 bar 的收盘为参考，粗略度量成交对数价格变动）
+				diagExecuted++
+				if ex.Action == quant.ActionBuy {
+					diagBuyUSDT += ex.FilledUSDT
+				} else {
+					diagSellUSDT += ex.FilledUSDT
+				}
 				_ = ex
 			}
 			for _, rel := range out.Releases {
@@ -174,6 +202,26 @@ func Run(bars []quant.Bar, cfg Config, evalStartMs int64) Result {
 					res.MaxDrawdown = dd
 				}
 			}
+		}
+
+		// 诊断 callback（仅 OnBar 非 nil 时有开销）
+		if cfg.OnBar != nil {
+			cfg.OnBar(BarDiag{
+				I:              i,
+				OpenTime:       b.OpenTime,
+				Price:          b.Close,
+				USDTBalance:    state.USDTBalance,
+				DeadStack:      state.DeadStack,
+				FloatStack:     state.FloatStack,
+				ColdSealed:     state.ColdSealed,
+				Equity:         equity,
+				IsEvalRange:    i >= startIdx,
+				NumIntents:     len(out.Intents),
+				NumExecuted:    diagExecuted,
+				BuyExecUSDT:    diagBuyUSDT,
+				SellExecUSDT:   diagSellUSDT,
+				DecisionReason: out.DecisionReason,
+			})
 		}
 	}
 

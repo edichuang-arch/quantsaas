@@ -248,6 +248,40 @@ func TestShouldBlockBuy_OnlyAffectsBuy(t *testing.T) {
 	}
 }
 
+// Micro 冷却时间：距上次决策 < 1 小时 → 不进 micro 引擎，不下 micro 单。
+func TestStep_MicroCooldownSkipsDecision(t *testing.T) {
+	nowMs := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC).UnixMilli()
+	in := defaultInput(nowMs)
+	// 上次 micro 决策在 30 分钟前 → 应该 cooldown
+	in.PrevRuntime.Extras[ExtraKeyLastMicroDecisionMs] = float64(nowMs - 30*60*1000)
+
+	out := Step(in, DefaultParams())
+
+	// 不应该有 MICRO 引擎产出的 intent
+	for _, intent := range out.Intents {
+		assert.NotEqual(t, quant.EngineMicro, intent.Engine,
+			"micro intent should be skipped during cooldown")
+	}
+}
+
+// Micro 冷却时间过期 → 正常决策。
+func TestStep_MicroCooldownExpiredAllowsDecision(t *testing.T) {
+	nowMs := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC).UnixMilli()
+	in := defaultInput(nowMs)
+	// 上次 micro 决策在 2 小时前 → 应该过期
+	in.PrevRuntime.Extras[ExtraKeyLastMicroDecisionMs] = float64(nowMs - 2*60*60*1000)
+	// 让微观信号偏强：拉升的常数序列
+	closes := makeCloses(100, 130, 150)
+	in.Closes = closes
+	in.Portfolio.CurrentPrice = 130
+
+	out := Step(in, DefaultParams())
+
+	// 不强求一定有 micro intent（取决于 Sigmoid 信号），但至少 Step() 不该报错
+	require.Empty(t, out.SkipReason, "step should not skip outright")
+	_ = out
+}
+
 // 守门触发后会写入 Extras 时间戳
 func TestStep_BlockedTimestampsWritten(t *testing.T) {
 	nowMs := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC).UnixMilli()

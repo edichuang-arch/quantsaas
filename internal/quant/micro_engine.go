@@ -35,6 +35,16 @@ const (
 	MicroMinOrderUSDT       = 10.1
 	MicroWedgeDeltaThreshold = 0.02 // |DeltaWeight| ≥ 2%
 	MicroWedgeVolThreshold   = 1.5  // VolatilityRatio ≥ 1.5
+
+	// MicroMinDeltaWeight 全局最小 DeltaWeight 门槛（占 TotalEquity 比例）。
+	// 当 |DeltaWeight| < 此值时，任何下单都会被拒绝，无论 absTheo 多大。
+	//
+	// 设计动机（详见 docs/2026-04-28-sigmafloor-bug.md）：
+	//   - 旧版只有 MicroMinOrderUSDT=10.1 这条金额下限
+	//   - 当 Equity 大（如 testnet $80k），DeltaWeight 只要 0.0125% 就达到 $10.1 → 触发下单
+	//   - 在 5m K 线上反复触发 → 6 个月 45,561 笔成交 → 手续费燒乾本金 $11k
+	//   - 修法：DeltaWeight 必须 ≥ 0.5% 才是「有意义的訓练信号」，过滤噪音
+	MicroMinDeltaWeight = 0.005
 )
 
 // MicroInput 封装 Sigmoid 动态天平一次决策需要的全部上下文。
@@ -148,7 +158,14 @@ func ComputeMicroDecision(in MicroInput) MicroOutput {
 		out.VolatilityRatio = ClipFloat64(ratio, 0.1, 3.0)
 	}
 
-	// Step 6：楔形区过滤。
+	// Step 6a：最小 DeltaWeight 全局门槛 — 过滤噪音交易。
+	// 必须放在 wedge filter 之前，避免 wedge 让小信号还是穿过。
+	if math.Abs(delta) < MicroMinDeltaWeight {
+		out.OrderUSD = 0
+		return out
+	}
+
+	// Step 6b：楔形区过滤。
 	absTheo := math.Abs(theoretical)
 	switch {
 	case absTheo >= MicroMinOrderUSDT:
